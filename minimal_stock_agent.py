@@ -504,7 +504,7 @@ class MinimalStockAgent:
 
             # Save to file
             if save_report:
-                filename = f"stock_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+                filename = f"reports/stock_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
                 with open(filename, 'w') as f:
                     f.write(report)
                 print(f"💾 Report saved to {filename}")
@@ -515,7 +515,7 @@ class MinimalStockAgent:
 
             # Save analysis data as JSON
             if save_report:
-                json_filename = f"analysis_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                json_filename = f"analysis/analysis_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
                 analysis_data = [asdict(analysis) for analysis in analyses]
                 with open(json_filename, 'w') as f:
                     json.dump(analysis_data, f, indent=2, default=str)
