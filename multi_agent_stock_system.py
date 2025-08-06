@@ -29,9 +29,11 @@ try:
     from textblob import TextBlob
     from langchain_openai import ChatOpenAI
     from langchain.prompts import PromptTemplate
+    import pandas as pd
 except ImportError as e:
     print(f"❌ Missing dependency: {e}")
-    print("Install with: pip install yfinance requests textblob langchain-openai")
+    print("Install with: pip install -r requirements.txt")
+    print("Or manually: pip install yfinance requests textblob langchain-openai pandas")
     sys.exit(1)
 
 # Configure logging
@@ -293,7 +295,7 @@ class DataCollectionAgent(BaseAgent):
                 'apiKey': news_api_key
             }
 
-            response = requests.get(url, params=params, timeout=10)
+            response = requests.get(url, params=params, timeout=15)
             if response.status_code != 200:
                 return self._generate_mock_sentiment(symbol)
 
@@ -370,13 +372,28 @@ class DataCollectionAgent(BaseAgent):
     def _calculate_rsi(self, prices, period=14):
         """Calculate RSI indicator"""
         try:
+            if len(prices) < period + 1:
+                return 50.0  # Not enough data for RSI calculation
+                
             delta = prices.diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+            
+            # Avoid division by zero
+            if loss.iloc[-1] == 0:
+                return 100.0 if gain.iloc[-1] > 0 else 50.0
+                
             rs = gain / loss
             rsi = 100 - (100 / (1 + rs))
-            return float(rsi.iloc[-1]) if not rsi.iloc[-1] != rsi.iloc[-1] else 50.0  # Handle NaN
-        except:
+            
+            # Handle NaN values
+            rsi_value = rsi.iloc[-1]
+            if pd.isna(rsi_value):
+                return 50.0
+                
+            return float(rsi_value)
+        except Exception as e:
+            self.logger.warning(f"RSI calculation failed: {e}")
             return 50.0  # Neutral RSI if calculation fails
 
 
@@ -466,7 +483,8 @@ WARNINGS: [Risk factors]
             )
 
             # Get AI analysis
-            response = await self.llm.apredict(prompt)
+            response = await self.llm.ainvoke(prompt)
+            response = response.content
 
             # Parse response
             score, confidence, insights, recommendations, warnings = self._parse_technical_response(response)
@@ -600,7 +618,8 @@ CATALYSTS: [Positive/negative drivers]
 WARNINGS: [Sentiment risks]
 """
 
-            response = await self.llm.apredict(prompt)
+            response = await self.llm.ainvoke(prompt)
+            response = response.content
             score, confidence, insights, recommendations, warnings = self._parse_sentiment_response(response)
 
             return AnalysisResult(
@@ -783,7 +802,8 @@ REASONING: [Key synthesis points]
 RISK_FACTORS: [Top 3 risks to monitor]
 """
 
-            response = await self.llm.apredict(prompt)
+            response = await self.llm.ainvoke(prompt)
+            response = response.content
 
             # Parse final recommendation
             recommendation = self._parse_final_recommendation(response, technical_result, sentiment_result)
@@ -1021,18 +1041,25 @@ async def main():
 
     # Save results
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    # Create output directory if it doesn't exist
+    import os
+    output_dir = "multi_agent_reports"
+    os.makedirs(output_dir, exist_ok=True)
 
     # Save detailed JSON results
-    with open(f"multi_agent_analysis_{timestamp}.json", 'w') as f:
+    json_file = os.path.join(output_dir, f"multi_agent_analysis_{timestamp}.json")
+    with open(json_file, 'w') as f:
         json.dump(results, f, indent=2, default=str)
 
     # Save report
-    with open(f"multi_agent_report_{timestamp}.txt", 'w') as f:
+    report_file = os.path.join(output_dir, f"multi_agent_report_{timestamp}.txt")
+    with open(report_file, 'w') as f:
         f.write(report)
 
     print(f"\n💾 Results saved:")
-    print(f"   • multi_agent_analysis_{timestamp}.json")
-    print(f"   • multi_agent_report_{timestamp}.txt")
+    print(f"   • {json_file}")
+    print(f"   • {report_file}")
 
 
 if __name__ == "__main__":
