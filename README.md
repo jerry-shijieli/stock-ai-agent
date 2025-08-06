@@ -7,6 +7,21 @@ An intelligent stock analysis agent that combines real-time market data with AI-
 
 ### Step 1: Install Dependencies (5 minutes)
 
+#### Option A: Quick Installation (Recommended)
+```bash
+# Clone or download this repository
+git clone <repository-url>
+cd stock-ai-agent
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install all dependencies from requirements.txt
+pip install -r requirements.txt
+```
+
+#### Option B: Manual Installation
 ```bash
 # Create a new directory
 mkdir stock-ai-agent
@@ -16,8 +31,14 @@ cd stock-ai-agent
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install required packages
+# Install core dependencies
 pip install yfinance requests textblob langchain-openai
+```
+
+#### Verify Installation
+```bash
+# Check if all packages are installed correctly
+python -c "import yfinance, requests, textblob, langchain_openai; print('✅ All dependencies installed successfully!')"
 ```
 
 ### Step 2: Get API Keys (10 minutes)
@@ -49,16 +70,32 @@ export EMAIL_RECIPIENT="recipient@gmail.com"
 
 ### Step 4: Run the Agent (5 minutes)
 
-```bash
-# Download the code file (copy from the artifact above)
-# Save it as: minimal_stock_agent.py
+Choose from the available Python scripts:
 
+#### Basic Stock Agent
+```bash
 # Run with default stocks (AAPL, GOOGL, MSFT, TSLA, NVDA)
 python minimal_stock_agent.py
 
 # Or analyze specific stocks
 python minimal_stock_agent.py AAPL,MSFT,AMZN
 ```
+
+#### Multi-Agent System (Advanced)
+```bash
+# Run the advanced multi-agent analysis
+python multi_agent_stock_system.py
+
+# Or with custom stocks
+python multi_agent_stock_system.py AAPL,GOOGL,TSLA
+```
+
+#### Available Scripts
+| Script | Description | Complexity |
+|--------|-------------|------------|
+| `minimal_stock_agent.py` | Single-agent basic analysis | Beginner |
+| `multi_agent_system.py` | Multi-agent framework example | Intermediate |
+| `multi_agent_stock_system.py` | Full multi-agent implementation | Advanced |
 
 ## 🎯 Sample Output
 
@@ -139,6 +176,43 @@ DETAILED ANALYSIS:
 - **Email Reports**: Optional automated notifications
 - **CLI Interface**: Easy to use and automate
 
+## 📦 Dependencies
+
+### Core Requirements
+The following packages are required and included in `requirements.txt`:
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `yfinance` | ≥0.2.18 | Fetch real-time stock data from Yahoo Finance |
+| `requests` | ≥2.31.0 | HTTP requests for news APIs and web services |
+| `textblob` | ≥0.17.1 | Natural language processing for sentiment analysis |
+| `langchain-openai` | ≥0.1.0 | OpenAI integration with LangChain framework |
+| `langchain` | ≥0.2.0 | Core LangChain library (auto-installed) |
+
+### Installation Methods
+
+**Method 1: Using requirements.txt (Recommended)**
+```bash
+pip install -r requirements.txt
+```
+
+**Method 2: Individual installation**
+```bash
+pip install yfinance requests textblob langchain-openai
+```
+
+### Optional Enhancements
+Additional packages available in `requirements.txt` for advanced features:
+- **pandas/numpy**: Enhanced data analysis capabilities
+- **matplotlib/plotly**: Data visualization and charting
+- **ta-lib**: Advanced technical indicators
+- **fastapi/streamlit**: Web interface development
+- **aiohttp**: Improved async performance
+
+### Python Version
+- **Minimum**: Python 3.8+
+- **Recommended**: Python 3.9+ for best compatibility
+
 ## 🎯 Testing Different Scenarios
 
 **Bull Market Test**
@@ -160,6 +234,45 @@ python minimal_stock_agent.py JNJ,PG,KO,WMT
 ```bash
 python minimal_stock_agent.py NVDA,AMD,CRM,SNOW
 ```
+
+## 🔧 Troubleshooting
+
+### Common Issues
+
+#### 1. Import Errors
+```bash
+❌ ModuleNotFoundError: No module named 'yfinance'
+```
+**Solution**: Install dependencies using `pip install -r requirements.txt`
+
+#### 2. OpenAI API Key Issues
+```bash
+❌ OPENAI_API_KEY environment variable is required!
+```
+**Solution**: Set your API key:
+```bash
+export OPENAI_API_KEY="sk-your-key-here"
+```
+
+#### 3. Network/API Errors
+```bash
+⚠️ No News API key - using mock sentiment
+```
+**Solution**: This is normal if NEWS_API_KEY is not set. The system will use mock data.
+
+#### 4. Stock Symbol Not Found
+```bash
+❌ No data found for INVALID_SYMBOL
+```
+**Solution**: Use valid stock symbols (e.g., AAPL, GOOGL, MSFT)
+
+### Getting Help
+
+If you encounter issues:
+1. Check that all dependencies are installed: `pip list | grep -E "(yfinance|requests|textblob|langchain)"`
+2. Verify your Python version: `python --version` (should be 3.8+)
+3. Test API connectivity: Run with default stocks first
+4. Check the generated log files for detailed error messages
 
 ## 🚀 Next Steps
 

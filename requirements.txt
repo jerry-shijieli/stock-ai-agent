@@ -1,0 +1,41 @@
+# Stock AI Agent - Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core data and web libraries
+yfinance>=0.2.18
+requests>=2.31.0
+
+# Natural language processing for sentiment analysis
+textblob>=0.17.1
+
+# OpenAI and LangChain integration
+langchain-openai>=0.1.0
+langchain>=0.2.0
+
+# Optional: Enhanced data analysis (if you want to add more features)
+# pandas>=2.0.0
+# numpy>=1.24.0
+
+# Optional: Visualization (if you want to add charts)
+# matplotlib>=3.7.0
+# plotly>=5.17.0
+
+# Optional: Additional technical indicators
+# ta-lib>=0.4.28
+# TA-Lib>=0.4.25
+
+# Optional: Database support (for storing historical data)
+# sqlalchemy>=2.0.0
+# sqlite3 (built-in, no install needed)
+
+# Optional: Web framework (if you want to add a web interface)
+# fastapi>=0.104.0
+# streamlit>=1.28.0
+
+# Optional: Async HTTP client (for better performance)
+# aiohttp>=3.9.0
+
+# Development dependencies (uncomment if developing)
+# pytest>=7.4.0
+# black>=23.9.0
+# flake8>=6.1.0
