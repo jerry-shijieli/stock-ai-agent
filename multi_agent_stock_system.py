@@ -931,8 +931,8 @@ class MultiAgentStockSystem:
                 emoji = {"BUY": "🟢", "HOLD": "🟡", "SELL": "🔴"}[final_rec["recommendation"]]
 
                 print(f"{emoji} FINAL: {final_rec['recommendation']} (Confidence: {final_rec['confidence']}/10)")
-                print(f"📊 Technical Score: {result['specialist_analyses']['technical']['score']}/10")
-                print(f"📰 Sentiment Score: {result['specialist_analyses']['sentiment']['score']}/10")
+                print(f"📊 Technical Score: {result['specialist_analyses']['technical'].score}/10")
+                print(f"📰 Sentiment Score: {result['specialist_analyses']['sentiment'].score}/10")
                 print(f"🎯 Combined Score: {final_rec['combined_score']}/10")
                 print(f"🤝 Specialist Agreement: {final_rec['specialist_agreement']}")
                 print(f"💡 Reasoning: {final_rec['reasoning'][:100]}...")
@@ -980,14 +980,14 @@ DETAILED MULTI-AGENT ANALYSIS:
 │  └─ Reasoning: {final_rec['reasoning']}
 │
 ├─ TECHNICAL ANALYST FINDINGS:
-│  ├─ Technical Score: {tech_analysis['score']}/10 (Confidence: {tech_analysis['confidence']:.2f})
-│  ├─ Key Insights: {'; '.join(tech_analysis['key_insights'])}
-│  └─ Technical Warnings: {'; '.join(tech_analysis['warnings'])}
+│  ├─ Technical Score: {tech_analysis.score}/10 (Confidence: {tech_analysis.confidence:.2f})
+│  ├─ Key Insights: {'; '.join(tech_analysis.key_insights)}
+│  └─ Technical Warnings: {'; '.join(tech_analysis.warnings)}
 │
 ├─ SENTIMENT ANALYST FINDINGS:
-│  ├─ Sentiment Score: {sent_analysis['score']}/10 (Confidence: {sent_analysis['confidence']:.2f})
-│  ├─ Key Insights: {'; '.join(sent_analysis['key_insights'])}
-│  └─ Sentiment Warnings: {'; '.join(sent_analysis['warnings'])}
+│  ├─ Sentiment Score: {sent_analysis.score}/10 (Confidence: {sent_analysis.confidence:.2f})
+│  ├─ Key Insights: {'; '.join(sent_analysis.key_insights)}
+│  └─ Sentiment Warnings: {'; '.join(sent_analysis.warnings)}
 │
 └─ KEY RISK FACTORS:
    {chr(10).join([f'   • {risk}' for risk in final_rec['risk_factors']])}
@@ -998,8 +998,8 @@ DETAILED MULTI-AGENT ANALYSIS:
 {'=' * 80}
 MULTI-AGENT SYSTEM PERFORMANCE:
 • Specialist agreement rate: {sum(1 for r in results if r.get('final_recommendation', {}).get('specialist_agreement', False)) / len([r for r in results if r['status'] == 'completed']) * 100:.1f}%
-• Average technical confidence: {sum(r['specialist_analyses']['technical']['confidence'] for r in results if r['status'] == 'completed') / len([r for r in results if r['status'] == 'completed']):.2f}
-• Average sentiment confidence: {sum(r['specialist_analyses']['sentiment']['confidence'] for r in results if r['status'] == 'completed') / len([r for r in results if r['status'] == 'completed']):.2f}
+• Average technical confidence: {sum(r['specialist_analyses']['technical'].confidence for r in results if r['status'] == 'completed') / len([r for r in results if r['status'] == 'completed']):.2f}
+• Average sentiment confidence: {sum(r['specialist_analyses']['sentiment'].confidence for r in results if r['status'] == 'completed') / len([r for r in results if r['status'] == 'completed']):.2f}
 
 DISCLAIMER: Multi-agent analysis for educational purposes only.
 Always conduct independent research before making investment decisions.
