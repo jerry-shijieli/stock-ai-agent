@@ -18,7 +18,7 @@ import json
 import asyncio
 from datetime import datetime, timedelta
 from dataclasses import dataclass, asdict
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Set
 from enum import Enum
 import logging
 
@@ -113,16 +113,161 @@ class AnalysisResult:
 
 
 # ============================================================================
-# Global agent registry for message routing
-_agent_registry = {}
+class AgentRegistry:
+    """Enhanced agent registry with capabilities, lifecycle, and discovery"""
+    
+    def __init__(self, name: str = "default"):
+        self.name = name
+        self._agents: Dict[str, 'BaseAgent'] = {}
+        self._capabilities: Dict[str, Set[str]] = {}
+        self._metadata: Dict[str, Dict] = {}
+        self._tags: Dict[str, Set['BaseAgent']] = {}
+        self._lock = asyncio.Lock()
+    
+    async def register(self, agent: 'BaseAgent', 
+                      capabilities: Set[str] = None,
+                      tags: Set[str] = None,
+                      metadata: Dict = None) -> bool:
+        """Register agent with enhanced information"""
+        async with self._lock:
+            if agent.name in self._agents:
+                logging.getLogger("AgentRegistry").warning(
+                    f"Agent '{agent.name}' already registered, replacing")
+            
+            self._agents[agent.name] = agent
+            self._capabilities[agent.name] = capabilities or set()
+            
+            # Store metadata
+            self._metadata[agent.name] = {
+                "registered_at": datetime.now(),
+                "agent_type": agent.agent_type,
+                "status": agent.status,
+                "capabilities": list(capabilities or []),
+                **(metadata or {})
+            }
+            
+            # Tag system
+            for tag in (tags or set()):
+                self._tags.setdefault(tag, set()).add(agent)
+            
+            logging.getLogger("AgentRegistry").info(
+                f"✅ Registered agent '{agent.name}' with {len(capabilities or [])} capabilities")
+            return True
+    
+    async def unregister(self, name: str) -> bool:
+        """Unregister agent and cleanup"""
+        async with self._lock:
+            if name not in self._agents:
+                return False
+                
+            agent = self._agents[name]
+            
+            # Clean up tags
+            for tag_set in self._tags.values():
+                tag_set.discard(agent)
+            
+            # Remove from all collections
+            del self._agents[name]
+            del self._capabilities[name]  
+            del self._metadata[name]
+            
+            logging.getLogger("AgentRegistry").info(f"🗑️ Unregistered agent '{name}'")
+            return True
+    
+    def get(self, name: str) -> Optional['BaseAgent']:
+        """Get agent by name"""
+        return self._agents.get(name)
+    
+    def find_by_capability(self, capability: str) -> List['BaseAgent']:
+        """Find all agents with specific capability"""
+        return [self._agents[name] for name, caps in self._capabilities.items()
+                if capability in caps and name in self._agents]
+    
+    def find_by_tag(self, tag: str) -> Set['BaseAgent']:
+        """Find agents by tag"""
+        return self._tags.get(tag, set()).copy()
+    
+    def find_by_type(self, agent_type: str) -> List['BaseAgent']:
+        """Find agents by type"""
+        return [agent for agent in self._agents.values() 
+                if agent.agent_type == agent_type]
+    
+    def list_agents(self) -> List[Dict]:
+        """List all registered agents with metadata"""
+        return [
+            {
+                "name": name,
+                "agent": agent,
+                "capabilities": list(self._capabilities.get(name, [])),
+                "metadata": self._metadata.get(name, {})
+            }
+            for name, agent in self._agents.items()
+        ]
+    
+    def get_stats(self) -> Dict:
+        """Get registry statistics"""
+        return {
+            "total_agents": len(self._agents),
+            "agent_types": len(set(a.agent_type for a in self._agents.values())),
+            "total_capabilities": sum(len(caps) for caps in self._capabilities.values()),
+            "registry_name": self.name,
+            "agents_by_type": {
+                agent_type: len([a for a in self._agents.values() if a.agent_type == agent_type])
+                for agent_type in set(a.agent_type for a in self._agents.values())
+            }
+        }
+    
+    async def health_check(self) -> Dict:
+        """Check health of all registered agents"""
+        results = {}
+        for name, agent in self._agents.items():
+            results[name] = {
+                "status": agent.status,
+                "running": agent.running,
+                "has_task": agent.message_task is not None,
+                "inbox_size": len(agent.inbox)
+            }
+        return results
 
-def register_agent(agent):
-    """Register an agent for message routing"""
-    _agent_registry[agent.name] = agent
+# Global registry instance (backward compatibility)
+_default_registry = AgentRegistry("default")
 
-def get_agent(name: str):
-    """Get agent by name from registry"""
-    return _agent_registry.get(name)
+# Convenience functions for backward compatibility
+async def register_agent(agent: 'BaseAgent', capabilities: Set[str] = None, 
+                        tags: Set[str] = None, metadata: Dict = None):
+    """Register agent in default registry"""
+    return await _default_registry.register(agent, capabilities, tags, metadata)
+
+def register_agent_sync(agent: 'BaseAgent', capabilities: Set[str] = None, 
+                       tags: Set[str] = None, metadata: Dict = None):
+    """Synchronous agent registration for __init__ use"""
+    # Simple synchronous registration - just add to agents dict
+    _default_registry._agents[agent.name] = agent
+    if capabilities:
+        _default_registry._capabilities[agent.name] = capabilities
+    if metadata:
+        _default_registry._metadata[agent.name] = metadata
+    if tags:
+        for tag in tags:
+            if tag not in _default_registry._tags:
+                _default_registry._tags[tag] = set()
+            _default_registry._tags[tag].add(agent)
+
+def get_agent(name: str) -> Optional['BaseAgent']:
+    """Get agent from default registry"""
+    return _default_registry.get(name)
+
+async def unregister_agent(name: str) -> bool:
+    """Unregister agent from default registry"""
+    return await _default_registry.unregister(name)
+
+def find_agents_by_capability(capability: str) -> List['BaseAgent']:
+    """Find agents by capability in default registry"""
+    return _default_registry.find_by_capability(capability)
+
+def get_registry_stats() -> Dict:
+    """Get default registry statistics"""
+    return _default_registry.get_stats()
 
 # STEP 2: Base Agent Class with Communication Framework
 # ============================================================================
@@ -151,7 +296,7 @@ class BaseAgent:
         }
         
         # Auto-register this agent for message routing
-        register_agent(self)
+        register_agent_sync(self)
 
         self.logger.info(f"🤖 {name} agent initialized")
 
@@ -251,7 +396,7 @@ class AgentManager:
         self.managed_agents = []
         self.running = False
     
-    def add_agent(self, agent: BaseAgent):
+    def add_agent(self, agent: 'BaseAgent'):
         """Add agent to management"""
         self.managed_agents.append(agent)
     

@@ -1,5 +1,7 @@
 # 🤖 Autonomous Multi-Agent Stock Analysis System
 
+> **🆕 Latest Update**: Enhanced Agent Registry System with capabilities-based discovery, rich metadata, tagging, and thread-safe operations - providing enterprise-grade agent coordination and management.
+
 ## 🎯 Overview
 
 An advanced **autonomous multi-agent system** for intelligent stock analysis that leverages true concurrent message-passing architecture. Each agent runs independently in background tasks, enabling real-time collaborative analysis without manual coordination.
@@ -10,6 +12,7 @@ An advanced **autonomous multi-agent system** for intelligent stock analysis tha
 - **📨 Message-Passing**: True asynchronous communication between agents  
 - **⚡ Concurrent Processing**: Multiple agents work simultaneously
 - **🎛️ Lifecycle Management**: Proper start/stop with AgentManager
+- **🔍 Enhanced Agent Registry**: Capabilities-based discovery, tagging, and metadata
 - **📊 Performance**: 1000x+ faster than sequential processing
 
 ## 🚀 Quick Start (10 minutes)
@@ -165,7 +168,26 @@ The DataCollector agent includes intelligent caching:
 
 ## 🎛️ Advanced Features
 
-### 1. Autonomous Agent Management
+### 1. Enhanced Agent Registry System
+```python
+# Capabilities-based agent discovery
+data_agents = find_agents_by_capability("data_collection")
+analysis_agents = find_agents_by_capability("technical_analysis")
+
+# Register agents with rich metadata
+await register_agent(
+    agent, 
+    capabilities={"data_collection", "caching"}, 
+    tags={"core", "data"}, 
+    metadata={"version": "2.0", "priority": "high"}
+)
+
+# Query registry statistics
+stats = get_registry_stats()
+# Returns: agent counts, types, capabilities, health status
+```
+
+### 2. Autonomous Agent Management
 ```python
 # Create and manage agents
 agent_manager = AgentManager()
@@ -175,26 +197,27 @@ agent_manager.add_agent(technical_analyst)
 # Start autonomous processing
 await agent_manager.start_all_agents()
 
-# Agents work independently
-# No manual coordination needed!
+# Agents work independently with enhanced registry
+# Automatic discovery and coordination!
 ```
 
-### 2. Intelligent Caching
+### 3. Intelligent Caching with Registry Integration
 ```python
 # DataCollector automatically caches results
-# Checks cache validity before API calls
-# Concurrent requests share cached data
-# Configurable TTL and cleanup
+# Registry tracks caching capabilities
+# Agents discover cache-enabled services
+# Configurable TTL and cleanup with metadata
 ```
 
-### 3. Concurrent Message Processing
+### 4. Concurrent Message Processing
 ```python
 # Multiple analysis requests processed simultaneously
+# Registry ensures proper routing and discovery
 await asyncio.gather(
     send_message("TechnicalAnalyst", ...),
     send_message("SentimentAnalyst", ...)
 )
-# Both agents process concurrently!
+# Both agents process concurrently with enhanced coordination!
 ```
 
 ## 🔍 Key Improvements Over Traditional Systems
@@ -211,6 +234,8 @@ await asyncio.gather(
 - **Event-Driven**: Messages trigger immediate processing
 - **Concurrent**: Multiple agents work simultaneously  
 - **Decoupled**: True message-passing architecture
+- **Enhanced Registry**: Capabilities-based discovery and routing
+- **Rich Metadata**: Agent versioning, health tracking, and statistics
 - **Robust**: Proper error handling and cleanup
 
 ## 🐛 Troubleshooting
@@ -234,6 +259,12 @@ await asyncio.gather(
 ❌ Analysis failed: Data collection failed
 ```
 *Solution*: Check network connectivity and API quotas
+
+**Registry Issues**
+```bash
+❌ Recipient agent 'DataCollector' not found in registry
+```
+*Solution*: Ensure agents are properly registered with `register_agent_sync()` or check registry stats with `get_registry_stats()`
 
 ### Debug Mode
 ```bash
@@ -277,14 +308,68 @@ asyncio               # Async processing (built-in)
 - **Network**: Internet connection for API calls
 - **OS**: Cross-platform (Windows/macOS/Linux)
 
+## 🔍 Enhanced Agent Registry Features
+
+### 🎯 Capabilities-Based Discovery
+```python
+# Find agents by what they can do
+data_collectors = find_agents_by_capability("data_collection")
+technical_agents = find_agents_by_capability("technical_analysis")
+sentiment_agents = find_agents_by_capability("sentiment_analysis")
+
+# Register agents with specific capabilities
+register_agent_sync(agent, capabilities={"caching", "real_time_data"})
+```
+
+### 🏷️ Agent Tagging and Organization
+```python
+# Organize agents with tags
+core_agents = registry.find_by_tag("core")
+experimental_agents = registry.find_by_tag("experimental")
+high_priority = registry.find_by_tag("priority_high")
+```
+
+### 📊 Rich Metadata and Statistics
+```python
+# Track agent metadata
+metadata = {
+    "version": "2.1.0",
+    "last_updated": "2025-08-07",
+    "performance_tier": "high",
+    "resource_usage": "medium"
+}
+register_agent_sync(agent, metadata=metadata)
+
+# Get comprehensive registry statistics
+stats = get_registry_stats()
+# Returns: {
+#   "total_agents": 4,
+#   "agent_types": 4,
+#   "total_capabilities": 12,
+#   "agents_by_type": {"data_collection": 1, "analysis": 3},
+#   "health_status": "healthy"
+# }
+```
+
+### 🔄 Thread-Safe Operations
+- **AsyncIO Locks**: Safe concurrent registration/unregistration
+- **Event-Driven Updates**: Real-time registry changes
+- **Atomic Operations**: Consistent state during updates
+- **Health Monitoring**: Track agent status and availability
+
+### 🔗 Backward Compatibility
+- **Legacy Support**: Existing code continues to work unchanged
+- **Graceful Migration**: Gradual adoption of enhanced features
+- **Simple API**: Easy-to-use convenience functions maintained
+
 ## 🚀 Future Enhancements
 
-- **Web Dashboard**: Real-time agent monitoring
-- **Risk Management Agent**: Portfolio risk assessment  
+- **Web Dashboard**: Real-time agent monitoring with registry integration
+- **Risk Management Agent**: Portfolio risk assessment with capability discovery
 - **Backtesting Agent**: Historical performance analysis
-- **Notification Agent**: Email/Slack alerts
-- **Database Agent**: Persistent data storage
-- **API Gateway**: RESTful service interface
+- **Notification Agent**: Email/Slack alerts with metadata tracking
+- **Database Agent**: Persistent data storage with enhanced registry
+- **API Gateway**: RESTful service interface with capability-based routing
 
 ## 📝 License
 
