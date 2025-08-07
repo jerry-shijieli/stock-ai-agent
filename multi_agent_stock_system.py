@@ -128,7 +128,7 @@ def get_agent(name: str):
 # ============================================================================
 
 class BaseAgent:
-    """Base class for all agents with communication capabilities"""
+    """Base class for all agents with autonomous message processing capabilities"""
 
     def __init__(self, name: str, agent_type: str):
         self.name = name
@@ -137,6 +137,11 @@ class BaseAgent:
         self.inbox = []
         self.outbox = []
         self.status = "initialized"
+        
+        # Autonomous processing attributes
+        self.running = False
+        self.message_task = None
+        self.message_event = asyncio.Event()
 
         # Agent memory for context
         self.memory = {
@@ -176,13 +181,55 @@ class BaseAgent:
             
         return message_id
 
+    async def start(self):
+        """Start autonomous message processing"""
+        if self.running:
+            return
+        
+        self.running = True
+        self.status = "running"
+        self.message_task = asyncio.create_task(self._autonomous_message_loop())
+        self.logger.info(f"🚀 Started autonomous processing for {self.name}")
+
+    async def stop(self):
+        """Stop autonomous message processing"""
+        self.running = False
+        self.status = "stopped"
+        if self.message_task:
+            try:
+                await self.message_task
+            except asyncio.CancelledError:
+                pass
+        self.logger.info(f"🛑 Stopped {self.name}")
+
+    async def _autonomous_message_loop(self):
+        """Continuously process messages in background"""
+        while self.running:
+            try:
+                # Process all pending messages
+                while self.inbox:
+                    message = self.inbox.pop(0)
+                    await self.handle_message(message)
+                
+                # Wait for new messages or timeout
+                try:
+                    await asyncio.wait_for(self.message_event.wait(), timeout=0.1)
+                    self.message_event.clear()
+                except asyncio.TimeoutError:
+                    pass  # Continue loop
+                    
+            except Exception as e:
+                self.logger.error(f"Error in message loop: {e}")
+                await asyncio.sleep(0.1)
+
     async def receive_message(self, message: AgentMessage):
         """Receive and queue message for processing"""
         self.inbox.append(message)
+        self.message_event.set()  # Signal new message
         self.logger.info(f"📥 Received {message.message_type.value} from {message.sender}")
 
     async def process_inbox(self):
-        """Process all messages in inbox"""
+        """Process all messages in inbox (legacy method for compatibility)"""
         while self.inbox:
             message = self.inbox.pop(0)
             await self.handle_message(message)
@@ -195,6 +242,42 @@ class BaseAgent:
         """Update agent memory"""
         self.memory[key] = value
         self.logger.debug(f"Memory updated: {key}")
+
+
+class AgentManager:
+    """Manages lifecycle of all autonomous agents"""
+    
+    def __init__(self):
+        self.managed_agents = []
+        self.running = False
+    
+    def add_agent(self, agent: BaseAgent):
+        """Add agent to management"""
+        self.managed_agents.append(agent)
+    
+    async def start_all_agents(self):
+        """Start all managed agents"""
+        self.running = True
+        for agent in self.managed_agents:
+            await agent.start()
+        logging.getLogger("AgentManager").info(f"🚀 Started {len(self.managed_agents)} autonomous agents")
+    
+    async def stop_all_agents(self):
+        """Stop all managed agents gracefully"""
+        self.running = False
+        for agent in self.managed_agents:
+            await agent.stop()
+        logging.getLogger("AgentManager").info(f"🛑 Stopped all agents")
+    
+    async def wait_for_completion(self, timeout: float = 10.0):
+        """Wait for all agents to finish processing"""
+        start_time = datetime.now()
+        while (datetime.now() - start_time).total_seconds() < timeout:
+            # Check if any agents have pending messages
+            pending = any(agent.inbox for agent in self.managed_agents)
+            if not pending:
+                break
+            await asyncio.sleep(0.1)
 
 
 # ============================================================================
@@ -777,15 +860,28 @@ class PortfolioManagerAgent(BaseAgent):
         self.technical_analyst = TechnicalAnalysisAgent(config)
         self.sentiment_analyst = SentimentAnalysisAgent(config)
 
+        # Create agent manager for autonomous operation
+        self.agent_manager = AgentManager()
+        self.agent_manager.add_agent(self.data_collector)
+        self.agent_manager.add_agent(self.technical_analyst)
+        self.agent_manager.add_agent(self.sentiment_analyst)
+        self.agent_manager.add_agent(self)  # Add self to enable autonomous processing
+
         # Track pending analyses and responses
         self.pending_analyses = {}
         self.message_responses = {}
 
     async def analyze_stock(self, symbol: str) -> Dict:
-        """Orchestrate complete multi-agent analysis using message-passing"""
-        self.logger.info(f"🎯 Starting message-based multi-agent analysis for {symbol}")
+        """Orchestrate complete multi-agent analysis using autonomous message-passing"""
+        self.logger.info(f"🎯 Starting autonomous multi-agent analysis for {symbol}")
 
         try:
+            # Start all agents for autonomous processing
+            await self.agent_manager.start_all_agents()
+            
+            # Clear previous responses
+            self.message_responses = {}
+            
             # Step 1: Request data collection via message
             await self.send_message(
                 recipient="DataCollector",
@@ -797,10 +893,7 @@ class PortfolioManagerAgent(BaseAgent):
                 }
             )
             
-            # Trigger DataCollector to process its inbox
-            await self.data_collector.process_inbox()
-            
-            # Process data response
+            # Wait for data response (agents process autonomously)
             data_package = await self._wait_for_data_response()
             if not data_package:
                 return self._create_error_result(symbol, "Data collection failed")
@@ -819,13 +912,7 @@ class PortfolioManagerAgent(BaseAgent):
                 )
             )
 
-            # Trigger analysts to process their inboxes
-            await asyncio.gather(
-                self.technical_analyst.process_inbox(),
-                self.sentiment_analyst.process_inbox()
-            )
-
-            # Wait for analysis responses
+            # Wait for analysis responses (agents process autonomously)
             technical_result, sentiment_result = await self._wait_for_analysis_responses()
 
             # Step 3: Synthesize results into final recommendation
@@ -846,12 +933,18 @@ class PortfolioManagerAgent(BaseAgent):
                 "status": "completed"
             }
 
-            self.logger.info(f"✅ Message-based multi-agent analysis completed for {symbol}")
+            self.logger.info(f"✅ Autonomous multi-agent analysis completed for {symbol}")
             return complete_result
 
         except Exception as e:
-            self.logger.error(f"Error in message-based multi-agent analysis: {e}")
+            self.logger.error(f"Error in autonomous multi-agent analysis: {e}")
             return self._create_error_result(symbol, str(e))
+        finally:
+            # Clean shutdown of all agents
+            try:
+                await self.agent_manager.stop_all_agents()
+            except Exception as e:
+                self.logger.error(f"Error stopping agents: {e}")
 
     async def handle_message(self, message: AgentMessage):
         """Handle incoming messages from other agents"""
