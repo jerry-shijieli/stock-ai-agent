@@ -186,6 +186,7 @@ class DataCollectionAgent(BaseAgent):
         super().__init__("DataCollector", "data_collection")
         self.config = config
         self.cache = {}  # Simple caching to avoid duplicate API calls
+        self.cache_ttl_minutes = config.get("cache_ttl_minutes", 5)  # Default 5 minutes cache
 
     async def handle_message(self, message: AgentMessage):
         """Handle data requests from other agents"""
@@ -208,9 +209,50 @@ class DataCollectionAgent(BaseAgent):
                 }
             )
 
+    def _is_cache_valid(self, symbol: str, data_types: List[str]) -> bool:
+        """Check if cached data exists and is still valid"""
+        if symbol not in self.cache:
+            return False
+            
+        cached_entry = self.cache[symbol]
+            
+        # Check if cached data contains all requested data types
+        cached_data = cached_entry["data"]
+        for data_type in data_types:
+            if data_type == "stock" and "stock_data" not in cached_data:
+                return False
+            elif data_type == "sentiment" and "sentiment_data" not in cached_data:
+                return False
+                
+        return True
+    
+    def _cleanup_expired_cache(self):
+        """Remove expired entries from cache"""
+        current_time = datetime.now()
+        expired_symbols = []
+        
+        for symbol, cached_entry in self.cache.items():
+            cache_age = current_time - cached_entry["timestamp"]
+            if cache_age.total_seconds() > (self.cache_ttl_minutes * 60):
+                expired_symbols.append(symbol)
+                
+        for symbol in expired_symbols:
+            del self.cache[symbol]
+            
+        if expired_symbols:
+            self.logger.debug(f"🗑️ Cleaned up expired cache entries for: {expired_symbols}")
+
     async def collect_all_data(self, symbol: str, data_types: List[str]) -> Optional[Dict]:
         """Collect all requested data for a symbol"""
-        self.logger.info(f"🔍 Collecting data for {symbol}: {data_types}")
+        # Clean up expired cache entries periodically
+        self._cleanup_expired_cache()
+        
+        # Check if we have valid cached data
+        if self._is_cache_valid(symbol, data_types):
+            self.logger.info(f"📋 Using cached data for {symbol}: {data_types}")
+            return self.cache[symbol]["data"]
+            
+        self.logger.info(f"🔍 Collecting fresh data for {symbol}: {data_types}")
 
         result = {"symbol": symbol}
 
@@ -232,6 +274,8 @@ class DataCollectionAgent(BaseAgent):
                 "data": result,
                 "timestamp": datetime.now()
             }
+            
+            self.logger.debug(f"💾 Cached data for {symbol} (TTL: {self.cache_ttl_minutes} min)")
 
             return result
 
@@ -908,6 +952,7 @@ class MultiAgentStockSystem:
         return {
             "openai_api_key": openai_key,
             "news_api_key": os.getenv('NEWS_API_KEY', ''),
+            "cache_ttl_minutes": int(os.getenv('CACHE_TTL_MINUTES', '5')),
         }
 
     async def analyze_portfolio(self, symbols: List[str]) -> List[Dict]:
