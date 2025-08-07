@@ -113,11 +113,22 @@ class AnalysisResult:
 
 
 # ============================================================================
+# Global agent registry for message routing
+_agent_registry = {}
+
+def register_agent(agent):
+    """Register an agent for message routing"""
+    _agent_registry[agent.name] = agent
+
+def get_agent(name: str):
+    """Get agent by name from registry"""
+    return _agent_registry.get(name)
+
 # STEP 2: Base Agent Class with Communication Framework
 # ============================================================================
 
 class BaseAgent:
-    """Base class for all agents with communication capabilities"""
+    """Base class for all agents with autonomous message processing capabilities"""
 
     def __init__(self, name: str, agent_type: str):
         self.name = name
@@ -126,6 +137,11 @@ class BaseAgent:
         self.inbox = []
         self.outbox = []
         self.status = "initialized"
+        
+        # Autonomous processing attributes
+        self.running = False
+        self.message_task = None
+        self.message_event = asyncio.Event()
 
         # Agent memory for context
         self.memory = {
@@ -133,6 +149,9 @@ class BaseAgent:
             "last_analysis": {},
             "performance_metrics": {}
         }
+        
+        # Auto-register this agent for message routing
+        register_agent(self)
 
         self.logger.info(f"🤖 {name} agent initialized")
 
@@ -151,16 +170,66 @@ class BaseAgent:
         )
 
         self.outbox.append(message)
-        self.logger.info(f"📤 Sent {message_type.value} to {recipient}")
+        
+        # Actually deliver the message to the recipient
+        recipient_agent = get_agent(recipient)
+        if recipient_agent:
+            await recipient_agent.receive_message(message)
+            self.logger.info(f"📤 Sent {message_type.value} to {recipient}")
+        else:
+            self.logger.error(f"❌ Recipient agent '{recipient}' not found in registry")
+            
         return message_id
+
+    async def start(self):
+        """Start autonomous message processing"""
+        if self.running:
+            return
+        
+        self.running = True
+        self.status = "running"
+        self.message_task = asyncio.create_task(self._autonomous_message_loop())
+        self.logger.info(f"🚀 Started autonomous processing for {self.name}")
+
+    async def stop(self):
+        """Stop autonomous message processing"""
+        self.running = False
+        self.status = "stopped"
+        if self.message_task:
+            try:
+                await self.message_task
+            except asyncio.CancelledError:
+                pass
+        self.logger.info(f"🛑 Stopped {self.name}")
+
+    async def _autonomous_message_loop(self):
+        """Continuously process messages in background"""
+        while self.running:
+            try:
+                # Process all pending messages
+                while self.inbox:
+                    message = self.inbox.pop(0)
+                    await self.handle_message(message)
+                
+                # Wait for new messages or timeout
+                try:
+                    await asyncio.wait_for(self.message_event.wait(), timeout=0.1)
+                    self.message_event.clear()
+                except asyncio.TimeoutError:
+                    pass  # Continue loop
+                    
+            except Exception as e:
+                self.logger.error(f"Error in message loop: {e}")
+                await asyncio.sleep(0.1)
 
     async def receive_message(self, message: AgentMessage):
         """Receive and queue message for processing"""
         self.inbox.append(message)
+        self.message_event.set()  # Signal new message
         self.logger.info(f"📥 Received {message.message_type.value} from {message.sender}")
 
     async def process_inbox(self):
-        """Process all messages in inbox"""
+        """Process all messages in inbox (legacy method for compatibility)"""
         while self.inbox:
             message = self.inbox.pop(0)
             await self.handle_message(message)
@@ -173,6 +242,42 @@ class BaseAgent:
         """Update agent memory"""
         self.memory[key] = value
         self.logger.debug(f"Memory updated: {key}")
+
+
+class AgentManager:
+    """Manages lifecycle of all autonomous agents"""
+    
+    def __init__(self):
+        self.managed_agents = []
+        self.running = False
+    
+    def add_agent(self, agent: BaseAgent):
+        """Add agent to management"""
+        self.managed_agents.append(agent)
+    
+    async def start_all_agents(self):
+        """Start all managed agents"""
+        self.running = True
+        for agent in self.managed_agents:
+            await agent.start()
+        logging.getLogger("AgentManager").info(f"🚀 Started {len(self.managed_agents)} autonomous agents")
+    
+    async def stop_all_agents(self):
+        """Stop all managed agents gracefully"""
+        self.running = False
+        for agent in self.managed_agents:
+            await agent.stop()
+        logging.getLogger("AgentManager").info(f"🛑 Stopped all agents")
+    
+    async def wait_for_completion(self, timeout: float = 10.0):
+        """Wait for all agents to finish processing"""
+        start_time = datetime.now()
+        while (datetime.now() - start_time).total_seconds() < timeout:
+            # Check if any agents have pending messages
+            pending = any(agent.inbox for agent in self.managed_agents)
+            if not pending:
+                break
+            await asyncio.sleep(0.1)
 
 
 # ============================================================================
@@ -195,7 +300,13 @@ class DataCollectionAgent(BaseAgent):
             data_types = message.content.get("data_types", ["stock", "sentiment"])
 
             # Collect requested data
+            self.logger.info(f"📊 Processing data request for {symbol}")
             data_package = await self.collect_all_data(symbol, data_types)
+            
+            if data_package:
+                self.logger.info(f"✅ Data collection successful for {symbol}")
+            else:
+                self.logger.error(f"❌ Data collection failed for {symbol}")
 
             # Send response back
             await self.send_message(
@@ -204,7 +315,7 @@ class DataCollectionAgent(BaseAgent):
                 content={
                     "request_id": message.id,
                     "symbol": symbol,
-                    "data_package": asdict(data_package) if data_package else None,
+                    "data_package": data_package,
                     "status": "success" if data_package else "failed"
                 }
             )
@@ -749,26 +860,60 @@ class PortfolioManagerAgent(BaseAgent):
         self.technical_analyst = TechnicalAnalysisAgent(config)
         self.sentiment_analyst = SentimentAnalysisAgent(config)
 
-        # Track pending analyses
+        # Create agent manager for autonomous operation
+        self.agent_manager = AgentManager()
+        self.agent_manager.add_agent(self.data_collector)
+        self.agent_manager.add_agent(self.technical_analyst)
+        self.agent_manager.add_agent(self.sentiment_analyst)
+        self.agent_manager.add_agent(self)  # Add self to enable autonomous processing
+
+        # Track pending analyses and responses
         self.pending_analyses = {}
+        self.message_responses = {}
 
     async def analyze_stock(self, symbol: str) -> Dict:
-        """Orchestrate complete multi-agent analysis"""
-        self.logger.info(f"🎯 Starting multi-agent analysis for {symbol}")
+        """Orchestrate complete multi-agent analysis using autonomous message-passing"""
+        self.logger.info(f"🎯 Starting autonomous multi-agent analysis for {symbol}")
 
         try:
-            # Step 1: Request data collection
-            data_package = await self.data_collector.collect_all_data(symbol, ["stock", "sentiment"])
-
+            # Start all agents for autonomous processing
+            await self.agent_manager.start_all_agents()
+            
+            # Clear previous responses
+            self.message_responses = {}
+            
+            # Step 1: Request data collection via message
+            await self.send_message(
+                recipient="DataCollector",
+                message_type=MessageType.DATA_REQUEST,
+                content={
+                    "symbol": symbol,
+                    "data_types": ["stock", "sentiment"],
+                    "requester_workflow": "analysis"
+                }
+            )
+            
+            # Wait for data response (agents process autonomously)
+            data_package = await self._wait_for_data_response()
             if not data_package:
                 return self._create_error_result(symbol, "Data collection failed")
 
-            # Step 2: Send analysis requests to specialists (in parallel)
-            technical_task = self._request_technical_analysis(data_package.get("stock_data"))
-            sentiment_task = self._request_sentiment_analysis(data_package.get("sentiment_data"))
+            # Step 2: Send analysis requests to specialists via messages (in parallel)
+            await asyncio.gather(
+                self.send_message(
+                    recipient="TechnicalAnalyst",
+                    message_type=MessageType.ANALYSIS_REQUEST,
+                    content={"stock_data": data_package.get("stock_data")}
+                ),
+                self.send_message(
+                    recipient="SentimentAnalyst", 
+                    message_type=MessageType.ANALYSIS_REQUEST,
+                    content={"sentiment_data": data_package.get("sentiment_data")}
+                )
+            )
 
-            # Wait for both analyses
-            technical_result, sentiment_result = await asyncio.gather(technical_task, sentiment_task)
+            # Wait for analysis responses (agents process autonomously)
+            technical_result, sentiment_result = await self._wait_for_analysis_responses()
 
             # Step 3: Synthesize results into final recommendation
             final_recommendation = await self._synthesize_analysis(
@@ -788,12 +933,71 @@ class PortfolioManagerAgent(BaseAgent):
                 "status": "completed"
             }
 
-            self.logger.info(f"✅ Multi-agent analysis completed for {symbol}")
+            self.logger.info(f"✅ Autonomous multi-agent analysis completed for {symbol}")
             return complete_result
 
         except Exception as e:
-            self.logger.error(f"Error in multi-agent analysis: {e}")
+            self.logger.error(f"Error in autonomous multi-agent analysis: {e}")
             return self._create_error_result(symbol, str(e))
+        finally:
+            # Clean shutdown of all agents
+            try:
+                await self.agent_manager.stop_all_agents()
+            except Exception as e:
+                self.logger.error(f"Error stopping agents: {e}")
+
+    async def handle_message(self, message: AgentMessage):
+        """Handle incoming messages from other agents"""
+        if message.message_type == MessageType.DATA_RESPONSE:
+            data_package = message.content.get("data_package")
+            status = message.content.get("status")
+            symbol = message.content.get("symbol")
+            
+            self.message_responses["data_response"] = data_package
+            
+            if status == "success" and data_package:
+                self.logger.info(f"📥 ✅ Received successful data response for {symbol}")
+            else:
+                self.logger.error(f"📥 ❌ Received failed data response for {symbol}")
+            
+        elif message.message_type == MessageType.ANALYSIS_RESPONSE:
+            # Store analysis results by sender
+            sender_type = message.sender.lower().replace("analyst", "")
+            self.message_responses[f"{sender_type}_analysis"] = message.content.get("analysis_result")
+            self.logger.info(f"📥 Received {sender_type} analysis response")
+
+    async def _wait_for_data_response(self, timeout: float = 10.0) -> Dict:
+        """Wait for data response from DataCollector"""
+        await self._process_messages_until_response("data_response", timeout)
+        return self.message_responses.get("data_response")
+    
+    async def _wait_for_analysis_responses(self, timeout: float = 15.0) -> tuple:
+        """Wait for both technical and sentiment analysis responses"""
+        # Process messages until we have both responses
+        start_time = datetime.now()
+        while (datetime.now() - start_time).total_seconds() < timeout:
+            await self.process_inbox()
+            
+            technical = self.message_responses.get("technical_analysis")
+            sentiment = self.message_responses.get("sentiment_analysis")
+            
+            if technical is not None and sentiment is not None:
+                return technical, sentiment
+                
+            await asyncio.sleep(0.1)  # Brief pause
+            
+        # Timeout - return what we have
+        return (self.message_responses.get("technical_analysis"), 
+                self.message_responses.get("sentiment_analysis"))
+    
+    async def _process_messages_until_response(self, response_key: str, timeout: float):
+        """Helper to process messages until a specific response is received"""
+        start_time = datetime.now()
+        while (datetime.now() - start_time).total_seconds() < timeout:
+            await self.process_inbox()
+            if response_key in self.message_responses:
+                return
+            await asyncio.sleep(0.1)
 
     async def _request_technical_analysis(self, stock_data: Dict) -> AnalysisResult:
         """Request technical analysis from specialist"""
@@ -809,27 +1013,52 @@ class PortfolioManagerAgent(BaseAgent):
 
         return await self.sentiment_analyst.analyze_sentiment(sentiment_data)
 
-    async def _synthesize_analysis(self, symbol: str, technical_result: AnalysisResult,
-                                   sentiment_result: AnalysisResult) -> Dict:
+    async def _synthesize_analysis(self, symbol: str, technical_result, sentiment_result) -> Dict:
         """Synthesize specialist analyses into final recommendation"""
         self.logger.info(f"🧠 Synthesizing analysis for {symbol}")
 
+        # Handle None results (failed analysis)
+        if not technical_result or not sentiment_result:
+            return {
+                "recommendation": "HOLD",
+                "confidence": 1,
+                "position_size": "SMALL", 
+                "time_horizon": "SHORT",
+                "reasoning": "Analysis incomplete - one or more specialist analyses failed",
+                "risk_factors": ["Incomplete analysis", "High uncertainty", "Market volatility"],
+                "combined_score": 5.0,
+                "specialist_agreement": False,
+                "synthesis_quality": "LOW"
+            }
+
         try:
+            # Technical result might be AnalysisResult object or dictionary
+            if hasattr(technical_result, 'confidence'):
+                tech = technical_result  # AnalysisResult object
+            else:
+                tech = type('obj', (object,), technical_result)()  # Convert dict to object-like access
+            
+            # Sentiment result might be AnalysisResult object or dictionary  
+            if hasattr(sentiment_result, 'confidence'):
+                sent = sentiment_result  # AnalysisResult object
+            else:
+                sent = type('obj', (object,), sentiment_result)()  # Convert dict to object-like access
+
             # Create synthesis prompt
             prompt = f"""
 You are a portfolio manager synthesizing specialist analyses for {symbol}:
 
-TECHNICAL ANALYSIS ({technical_result.confidence:.2f} confidence):
-Score: {technical_result.score}/10
-Key Insights: {'; '.join(technical_result.key_insights)}
-Recommendations: {'; '.join(technical_result.recommendations)}
-Warnings: {'; '.join(technical_result.warnings)}
+TECHNICAL ANALYSIS ({tech.confidence:.2f} confidence):
+Score: {tech.score}/10
+Key Insights: {'; '.join(tech.key_insights)}
+Recommendations: {'; '.join(tech.recommendations)}
+Warnings: {'; '.join(tech.warnings)}
 
-SENTIMENT ANALYSIS ({sentiment_result.confidence:.2f} confidence):
-Score: {sentiment_result.score}/10  
-Key Insights: {'; '.join(sentiment_result.key_insights)}
-Recommendations: {'; '.join(sentiment_result.recommendations)}
-Warnings: {'; '.join(sentiment_result.warnings)}
+SENTIMENT ANALYSIS ({sent.confidence:.2f} confidence):
+Score: {sent.score}/10  
+Key Insights: {'; '.join(sent.key_insights)}
+Recommendations: {'; '.join(sent.recommendations)}
+Warnings: {'; '.join(sent.warnings)}
 
 Synthesize these expert opinions considering:
 - Agreement/disagreement between specialists
@@ -850,7 +1079,7 @@ RISK_FACTORS: [Top 3 risks to monitor]
             response = response.content
 
             # Parse final recommendation
-            recommendation = self._parse_final_recommendation(response, technical_result, sentiment_result)
+            recommendation = self._parse_final_recommendation(response, tech, sent)
 
             return recommendation
 
@@ -859,11 +1088,16 @@ RISK_FACTORS: [Top 3 risks to monitor]
             return {
                 "recommendation": "HOLD",
                 "confidence": 3,
+                "position_size": "SMALL",
+                "time_horizon": "SHORT", 
                 "reasoning": f"Synthesis failed: {str(e)}",
-                "risk_factors": ["Analysis synthesis error"]
+                "risk_factors": ["Analysis synthesis error"],
+                "combined_score": 5.0,
+                "specialist_agreement": False,
+                "synthesis_quality": "LOW"
             }
 
-    def _parse_final_recommendation(self, response: str, technical: AnalysisResult, sentiment: AnalysisResult) -> Dict:
+    def _parse_final_recommendation(self, response: str, technical, sentiment) -> Dict:
         """Parse the final synthesis response"""
         lines = response.strip().split('\n')
 
@@ -976,8 +1210,8 @@ class MultiAgentStockSystem:
                 emoji = {"BUY": "🟢", "HOLD": "🟡", "SELL": "🔴"}[final_rec["recommendation"]]
 
                 print(f"{emoji} FINAL: {final_rec['recommendation']} (Confidence: {final_rec['confidence']}/10)")
-                print(f"📊 Technical Score: {result['specialist_analyses']['technical'].score}/10")
-                print(f"📰 Sentiment Score: {result['specialist_analyses']['sentiment'].score}/10")
+                print(f"📊 Technical Score: {result['specialist_analyses']['technical']['score']}/10")
+                print(f"📰 Sentiment Score: {result['specialist_analyses']['sentiment']['score']}/10")
                 print(f"🎯 Combined Score: {final_rec['combined_score']}/10")
                 print(f"🤝 Specialist Agreement: {final_rec['specialist_agreement']}")
                 print(f"💡 Reasoning: {final_rec['reasoning'][:100]}...")
@@ -1025,26 +1259,58 @@ DETAILED MULTI-AGENT ANALYSIS:
 │  └─ Reasoning: {final_rec['reasoning']}
 │
 ├─ TECHNICAL ANALYST FINDINGS:
-│  ├─ Technical Score: {tech_analysis.score}/10 (Confidence: {tech_analysis.confidence:.2f})
-│  ├─ Key Insights: {'; '.join(tech_analysis.key_insights)}
-│  └─ Technical Warnings: {'; '.join(tech_analysis.warnings)}
+│  ├─ Technical Score: {tech_analysis['score']}/10 (Confidence: {tech_analysis['confidence']:.2f})
+│  ├─ Key Insights: {'; '.join(tech_analysis['key_insights'])}
+│  └─ Technical Warnings: {'; '.join(tech_analysis['warnings'])}
 │
 ├─ SENTIMENT ANALYST FINDINGS:
-│  ├─ Sentiment Score: {sent_analysis.score}/10 (Confidence: {sent_analysis.confidence:.2f})
-│  ├─ Key Insights: {'; '.join(sent_analysis.key_insights)}
-│  └─ Sentiment Warnings: {'; '.join(sent_analysis.warnings)}
+│  ├─ Sentiment Score: {sent_analysis['score']}/10 (Confidence: {sent_analysis['confidence']:.2f})
+│  ├─ Key Insights: {'; '.join(sent_analysis['key_insights'])}
+│  └─ Sentiment Warnings: {'; '.join(sent_analysis['warnings'])}
 │
 └─ KEY RISK FACTORS:
    {chr(10).join([f'   • {risk}' for risk in final_rec['risk_factors']])}
 
 """
 
-        report += f"""
+        # Calculate performance metrics safely
+        completed_results = [r for r in results if r['status'] == 'completed']
+        
+        if completed_results:
+            specialist_agreement = sum(1 for r in completed_results if r.get('final_recommendation', {}).get('specialist_agreement', False))
+            agreement_rate = (specialist_agreement / len(completed_results) * 100) if completed_results else 0
+            
+            # Safely calculate average confidences
+            tech_confidences = []
+            sent_confidences = []
+            
+            for r in completed_results:
+                tech_analysis = r.get('specialist_analyses', {}).get('technical')
+                sent_analysis = r.get('specialist_analyses', {}).get('sentiment')
+                
+                if tech_analysis and 'confidence' in tech_analysis:
+                    tech_confidences.append(tech_analysis['confidence'])
+                if sent_analysis and 'confidence' in sent_analysis:
+                    sent_confidences.append(sent_analysis['confidence'])
+            
+            avg_tech_conf = sum(tech_confidences) / len(tech_confidences) if tech_confidences else 0
+            avg_sent_conf = sum(sent_confidences) / len(sent_confidences) if sent_confidences else 0
+            
+            report += f"""
 {'=' * 80}
 MULTI-AGENT SYSTEM PERFORMANCE:
-• Specialist agreement rate: {sum(1 for r in results if r.get('final_recommendation', {}).get('specialist_agreement', False)) / len([r for r in results if r['status'] == 'completed']) * 100:.1f}%
-• Average technical confidence: {sum(r['specialist_analyses']['technical'].confidence for r in results if r['status'] == 'completed') / len([r for r in results if r['status'] == 'completed']):.2f}
-• Average sentiment confidence: {sum(r['specialist_analyses']['sentiment'].confidence for r in results if r['status'] == 'completed') / len([r for r in results if r['status'] == 'completed']):.2f}
+• Completed analyses: {len(completed_results)}/{len(results)}
+• Specialist agreement rate: {agreement_rate:.1f}%
+• Average technical confidence: {avg_tech_conf:.2f}
+• Average sentiment confidence: {avg_sent_conf:.2f}"""
+        else:
+            report += f"""
+{'=' * 80}
+MULTI-AGENT SYSTEM PERFORMANCE:
+• Completed analyses: 0/{len(results)}
+• No successful analyses to report performance metrics"""
+        
+        report += f"""
 
 DISCLAIMER: Multi-agent analysis for educational purposes only.
 Always conduct independent research before making investment decisions.
