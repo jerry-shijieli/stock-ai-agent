@@ -1500,7 +1500,7 @@ async def main():
     
     # Create output directory if it doesn't exist
     import os
-    output_dir = "multi_agent_reports"
+    output_dir = "../multi_agent_reports"
     os.makedirs(output_dir, exist_ok=True)
 
     # Save detailed JSON results
