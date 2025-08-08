@@ -1177,11 +1177,17 @@ async def main():
     # Save results if we have any
     if results:
         try:
+            # Create results directory if it doesn't exist
+            results_dir = Path("results")
+            results_dir.mkdir(exist_ok=True)
+            
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"memory_enhanced_results_{timestamp}.json"
-            with open(filename, 'w') as f:
+            filepath = results_dir / filename
+            
+            with open(filepath, 'w') as f:
                 json.dump(results, f, indent=2, default=str)
-            print(f"\n💾 Results saved to {filename}")
+            print(f"\n💾 Results saved to {filepath}")
         except Exception as e:
             print(f"⚠️ Could not save results: {e}")
     else:
