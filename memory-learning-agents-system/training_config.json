@@ -1,0 +1,26 @@
+{
+  "training_settings": {
+    "default_symbol": "AAPL",
+    "months_back": 3,
+    "prediction_window_days": 7,
+    "min_training_points": 10,
+    "direction_threshold_percent": 1.5,
+    "update_frequency": 20
+  },
+  "multi_stock_training": {
+    "enabled": false,
+    "symbols": ["AAPL", "GOOGL", "MSFT", "TSLA", "NVDA", "AMD", "META"]
+  },
+  "advanced_settings": {
+    "rsi_period": 14,
+    "sma_periods": [20, 50],
+    "volatility_penalty_factor": 0.3,
+    "overconfidence_penalty_multiplier": 2.0,
+    "neutral_prediction_credit": 0.6
+  },
+  "output_settings": {
+    "save_reports": true,
+    "verbose_logging": true,
+    "test_after_training": true
+  }
+}
