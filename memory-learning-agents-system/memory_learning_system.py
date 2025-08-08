@@ -31,15 +31,14 @@ try:
     import numpy as np
     from textblob import TextBlob
     from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-    from langchain.prompts import PromptTemplate
-    from langchain.schema import Document
-    from langchain.vectorstores import Chroma
+    from langchain_core.prompts import PromptTemplate
+    from langchain_core.documents import Document
     from sklearn.metrics import accuracy_score, mean_absolute_error
     import chromadb
     from chromadb.config import Settings
 except ImportError as e:
     print(f"❌ Missing dependency: {e}")
-    print("Install with: pip install yfinance requests textblob langchain-openai chromadb scikit-learn")
+    print("Install with: pip install yfinance requests textblob langchain-openai langchain-core chromadb scikit-learn")
     sys.exit(1)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -242,314 +241,230 @@ class SQLMemorySystem:
 
         # Analysis history table
         cursor.execute('''
-                       CREATE TABLE IF NOT EXISTS analysis_history
-                       (
-                           id
-                           TEXT
-                           PRIMARY
-                           KEY,
-                           symbol
-                           TEXT
-                           NOT
-                           NULL,
-                           analysis_date
-                           TEXT
-                           NOT
-                           NULL,
-                           agent_name
-                           TEXT
-                           NOT
-                           NULL,
-                           analysis_type
-                           TEXT
-                           NOT
-                           NULL,
-                           prediction_data
-                           TEXT
-                           NOT
-                           NULL, -- JSON
-                           actual_outcome_data
-                           TEXT, -- JSON
-                           accuracy_score
-                           REAL,
-                           confidence
-                           REAL
-                           NOT
-                           NULL,
-                           market_conditions
-                           TEXT, -- JSON
-                           created_at
-                           TIMESTAMP
-                           DEFAULT
-                           CURRENT_TIMESTAMP
-                       )
-                       ''')
+            CREATE TABLE IF NOT EXISTS analysis_history (
+                id TEXT PRIMARY KEY,
+                symbol TEXT NOT NULL,
+                analysis_date TEXT NOT NULL,
+                agent_name TEXT NOT NULL,
+                analysis_type TEXT NOT NULL,
+                prediction_data TEXT NOT NULL,
+                actual_outcome_data TEXT,
+                accuracy_score REAL,
+                confidence REAL NOT NULL,
+                market_conditions TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
 
         # Performance metrics table
         cursor.execute('''
-                       CREATE TABLE IF NOT EXISTS agent_performance
-                       (
-                           agent_name
-                           TEXT
-                           PRIMARY
-                           KEY,
-                           total_predictions
-                           INTEGER
-                           DEFAULT
-                           0,
-                           correct_predictions
-                           INTEGER
-                           DEFAULT
-                           0,
-                           accuracy_rate
-                           REAL
-                           DEFAULT
-                           0.0,
-                           avg_confidence
-                           REAL
-                           DEFAULT
-                           0.0,
-                           recent_performance
-                           TEXT, -- JSON array of recent scores
-                           improvement_trend
-                           TEXT
-                           DEFAULT
-                           'stable',
-                           last_updated
-                           TIMESTAMP
-                           DEFAULT
-                           CURRENT_TIMESTAMP
-                       )
-                       ''')
+            CREATE TABLE IF NOT EXISTS agent_performance (
+                agent_name TEXT PRIMARY KEY,
+                total_predictions INTEGER DEFAULT 0,
+                correct_predictions INTEGER DEFAULT 0,
+                accuracy_rate REAL DEFAULT 0.0,
+                avg_confidence REAL DEFAULT 0.0,
+                recent_performance TEXT,
+                improvement_trend TEXT DEFAULT 'stable',
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
 
         # Market patterns table
         cursor.execute('''
-                       CREATE TABLE IF NOT EXISTS market_patterns
-                       (
-                           pattern_id
-                           TEXT
-                           PRIMARY
-                           KEY,
-                           pattern_type
-                           TEXT
-                           NOT
-                           NULL,
-                           conditions
-                           TEXT
-                           NOT
-                           NULL, -- JSON
-                           success_rate
-                           REAL
-                           NOT
-                           NULL,
-                           sample_size
-                           INTEGER
-                           NOT
-                           NULL,
-                           confidence
-                           REAL
-                           NOT
-                           NULL,
-                           discovered_date
-                           TEXT
-                           NOT
-                           NULL,
-                           last_seen
-                           TEXT
-                           NOT
-                           NULL
-                       )
-                       ''')
+            CREATE TABLE IF NOT EXISTS market_patterns (
+                pattern_id TEXT PRIMARY KEY,
+                pattern_type TEXT NOT NULL,
+                conditions TEXT NOT NULL,
+                success_rate REAL NOT NULL,
+                sample_size INTEGER NOT NULL,
+                confidence REAL NOT NULL,
+                discovered_date TEXT NOT NULL,
+                last_seen TEXT NOT NULL
+            )
+        ''')
 
         # Price tracking table (for calculating accuracy)
         cursor.execute('''
-                       CREATE TABLE IF NOT EXISTS price_tracking
-                       (
-                           symbol
-                           TEXT
-                           NOT
-                           NULL,
-                           date
-                           TEXT
-                           NOT
-                           NULL,
-                           price
-                           REAL
-                           NOT
-                           NULL,
-                           volume
-                           INTEGER,
-                           created_at
-                           TIMESTAMP
-                           DEFAULT
-                           CURRENT_TIMESTAMP,
-                           PRIMARY
-                           KEY
-                       (
-                           symbol,
-                           date
-                       )
-                           )
-                       ''')
+            CREATE TABLE IF NOT EXISTS price_tracking (
+                symbol TEXT NOT NULL,
+                date TEXT NOT NULL,
+                price REAL NOT NULL,
+                volume INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (symbol, date)
+            )
+        ''')
 
         conn.commit()
         conn.close()
 
     async def store_analysis(self, memory: AnalysisMemory):
         """Store analysis in SQL database"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
+        if not memory or not memory.id:
+            self.logger.error("Invalid memory object provided")
+            return
+            
         try:
-            cursor.execute('''
-            INSERT OR REPLACE INTO analysis_history 
-            (id, symbol, analysis_date, agent_name, analysis_type, 
-             prediction_data, actual_outcome_data, accuracy_score, 
-             confidence, market_conditions)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                memory.id,
-                memory.symbol,
-                memory.analysis_date.isoformat(),
-                memory.agent_name,
-                memory.analysis_type,
-                json.dumps(memory.prediction),
-                json.dumps(memory.actual_outcome) if memory.actual_outcome else None,
-                memory.accuracy_score,
-                memory.confidence,
-                json.dumps(memory.market_conditions) if memory.market_conditions else None
-            ))
-
-            conn.commit()
-            self.logger.info(f"💾 Stored analysis in SQL: {memory.id}")
-
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT OR REPLACE INTO analysis_history 
+                    (id, symbol, analysis_date, agent_name, analysis_type, 
+                     prediction_data, actual_outcome_data, accuracy_score, 
+                     confidence, market_conditions)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    memory.id,
+                    memory.symbol,
+                    memory.analysis_date.isoformat(),
+                    memory.agent_name,
+                    memory.analysis_type,
+                    json.dumps(memory.prediction),
+                    json.dumps(memory.actual_outcome) if memory.actual_outcome else None,
+                    memory.accuracy_score,
+                    memory.confidence,
+                    json.dumps(memory.market_conditions) if memory.market_conditions else None
+                ))
+                conn.commit()
+                self.logger.info(f"💾 Stored analysis in SQL: {memory.id}")
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error storing analysis: {e}")
         except Exception as e:
-            self.logger.error(f"Error storing analysis: {e}")
-        finally:
-            conn.close()
+            self.logger.error(f"Unexpected error storing analysis: {e}")
 
     async def update_performance_metrics(self, agent_name: str):
         """Update performance metrics for an agent"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
+        if not agent_name:
+            self.logger.error("Agent name is required")
+            return
+            
         try:
-            # Calculate current metrics
-            cursor.execute('''
-                           SELECT accuracy_score, confidence
-                           FROM analysis_history
-                           WHERE agent_name = ?
-                             AND accuracy_score IS NOT NULL
-                           ORDER BY analysis_date DESC LIMIT 50
-                           ''', (agent_name,))
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                # Calculate current metrics
+                cursor.execute('''
+                    SELECT accuracy_score, confidence
+                    FROM analysis_history
+                    WHERE agent_name = ?
+                      AND accuracy_score IS NOT NULL
+                    ORDER BY analysis_date DESC LIMIT 50
+                ''', (agent_name,))
 
-            results = cursor.fetchall()
+                results = cursor.fetchall()
 
-            if not results:
-                return
+                if not results:
+                    self.logger.info(f"No performance data found for {agent_name}")
+                    return
 
-            # Calculate metrics
-            total_predictions = len(results)
-            accuracy_scores = [r[0] for r in results if r[0] is not None]
-            confidences = [r[1] for r in results]
+                # Calculate metrics
+                total_predictions = len(results)
+                accuracy_scores = [r[0] for r in results if r[0] is not None]
+                confidences = [r[1] for r in results]
 
-            avg_accuracy = sum(accuracy_scores) / len(accuracy_scores) if accuracy_scores else 0
-            avg_confidence = sum(confidences) / len(confidences) if confidences else 0
+                avg_accuracy = sum(accuracy_scores) / len(accuracy_scores) if accuracy_scores else 0
+                avg_confidence = sum(confidences) / len(confidences) if confidences else 0
 
-            # Recent performance (last 10)
-            recent_performance = accuracy_scores[:10]
+                # Recent performance (last 10)
+                recent_performance = accuracy_scores[:10]
 
-            # Determine trend
-            if len(recent_performance) >= 5:
-                recent_avg = sum(recent_performance[:5]) / 5
-                older_avg = sum(recent_performance[5:10]) / len(recent_performance[5:10]) if len(
-                    recent_performance) > 5 else recent_avg
+                # Determine trend
+                if len(recent_performance) >= 5:
+                    recent_avg = sum(recent_performance[:5]) / 5
+                    older_slice = recent_performance[5:10]
+                    older_avg = sum(older_slice) / len(older_slice) if older_slice else recent_avg
 
-                if recent_avg > older_avg + 0.1:
-                    trend = "improving"
-                elif recent_avg < older_avg - 0.1:
-                    trend = "declining"
+                    if recent_avg > older_avg + 0.1:
+                        trend = "improving"
+                    elif recent_avg < older_avg - 0.1:
+                        trend = "declining"
+                    else:
+                        trend = "stable"
                 else:
                     trend = "stable"
-            else:
-                trend = "stable"
 
-            # Update performance table
-            cursor.execute('''
-            INSERT OR REPLACE INTO agent_performance 
-            (agent_name, total_predictions, correct_predictions, accuracy_rate, 
-             avg_confidence, recent_performance, improvement_trend, last_updated)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                agent_name,
-                total_predictions,
-                len([a for a in accuracy_scores if a > 0.6]),  # Consider >0.6 as "correct"
-                avg_accuracy,
-                avg_confidence,
-                json.dumps(recent_performance),
-                trend,
-                datetime.now().isoformat()
-            ))
+                # Update performance table
+                cursor.execute('''
+                    INSERT OR REPLACE INTO agent_performance 
+                    (agent_name, total_predictions, correct_predictions, accuracy_rate, 
+                     avg_confidence, recent_performance, improvement_trend, last_updated)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    agent_name,
+                    total_predictions,
+                    len([a for a in accuracy_scores if a > 0.6]),  # Consider >0.6 as "correct"
+                    avg_accuracy,
+                    avg_confidence,
+                    json.dumps(recent_performance),
+                    trend,
+                    datetime.now().isoformat()
+                ))
 
-            conn.commit()
-            self.logger.info(f"📊 Updated performance metrics for {agent_name}")
+                conn.commit()
+                self.logger.info(f"📊 Updated performance metrics for {agent_name}")
 
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error updating performance metrics: {e}")
         except Exception as e:
-            self.logger.error(f"Error updating performance metrics: {e}")
-        finally:
-            conn.close()
+            self.logger.error(f"Unexpected error updating performance metrics: {e}")
 
     async def get_agent_performance(self, agent_name: str) -> Optional[PerformanceMetrics]:
         """Get performance metrics for an agent"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
+        if not agent_name:
+            self.logger.error("Agent name is required")
+            return None
+            
         try:
-            cursor.execute('''
-                           SELECT *
-                           FROM agent_performance
-                           WHERE agent_name = ?
-                           ''', (agent_name,))
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT *
+                    FROM agent_performance
+                    WHERE agent_name = ?
+                ''', (agent_name,))
 
-            result = cursor.fetchone()
+                result = cursor.fetchone()
 
-            if result:
-                return PerformanceMetrics(
-                    agent_name=result[0],
-                    total_predictions=result[1],
-                    correct_predictions=result[2],
-                    accuracy_rate=result[3],
-                    avg_confidence=result[4],
-                    recent_performance=json.loads(result[5]) if result[5] else [],
-                    improvement_trend=result[6],
-                    last_updated=datetime.fromisoformat(result[7])
-                )
+                if result:
+                    return PerformanceMetrics(
+                        agent_name=result[0],
+                        total_predictions=result[1],
+                        correct_predictions=result[2],
+                        accuracy_rate=result[3],
+                        avg_confidence=result[4],
+                        recent_performance=json.loads(result[5]) if result[5] else [],
+                        improvement_trend=result[6],
+                        last_updated=datetime.fromisoformat(result[7])
+                    )
 
+                return None
+
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error getting agent performance: {e}")
             return None
-
         except Exception as e:
-            self.logger.error(f"Error getting agent performance: {e}")
+            self.logger.error(f"Unexpected error getting agent performance: {e}")
             return None
-        finally:
-            conn.close()
 
     async def store_price_data(self, symbol: str, price: float, volume: int = 0):
         """Store price data for accuracy calculations"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
+        if not symbol or price <= 0:
+            self.logger.error(f"Invalid symbol or price: {symbol}, {price}")
+            return
+            
         try:
-            cursor.execute('''
-            INSERT OR REPLACE INTO price_tracking (symbol, date, price, volume)
-            VALUES (?, ?, ?, ?)
-            ''', (symbol, datetime.now().date().isoformat(), price, volume))
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT OR REPLACE INTO price_tracking (symbol, date, price, volume)
+                    VALUES (?, ?, ?, ?)
+                ''', (symbol, datetime.now().date().isoformat(), price, volume))
+                conn.commit()
 
-            conn.commit()
-
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error storing price data: {e}")
         except Exception as e:
-            self.logger.error(f"Error storing price data: {e}")
-        finally:
-            conn.close()
+            self.logger.error(f"Unexpected error storing price data: {e}")
 
 
 # ============================================================================
@@ -576,46 +491,65 @@ class LearningEngine:
 
     async def calculate_prediction_accuracy(self, analysis_id: str, days_to_wait: int = 7) -> float:
         """Calculate accuracy of a prediction after waiting period"""
+        if not analysis_id:
+            self.logger.error("Analysis ID is required")
+            return 0.0
+            
         try:
             # Get the original analysis
-            conn = sqlite3.connect(self.sql_memory.db_path)
-            cursor = conn.cursor()
+            with sqlite3.connect(self.sql_memory.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT symbol, analysis_date, prediction_data
+                    FROM analysis_history
+                    WHERE id = ?
+                ''', (analysis_id,))
 
-            cursor.execute('''
-                           SELECT symbol, analysis_date, prediction_data
-                           FROM analysis_history
-                           WHERE id = ?
-                           ''', (analysis_id,))
-
-            result = cursor.fetchone()
-            conn.close()
+                result = cursor.fetchone()
 
             if not result:
+                self.logger.warning(f"No analysis found for ID: {analysis_id}")
                 return 0.0
 
             symbol, analysis_date_str, prediction_json = result
-            analysis_date = datetime.fromisoformat(analysis_date_str)
-            prediction = json.loads(prediction_json)
+            
+            try:
+                analysis_date = datetime.fromisoformat(analysis_date_str)
+                prediction = json.loads(prediction_json)
+            except (ValueError, json.JSONDecodeError) as e:
+                self.logger.error(f"Error parsing analysis data: {e}")
+                return 0.0
 
-            # Get price at prediction time and current price
-            target_date = analysis_date + timedelta(days=days_to_wait)
-
-            # Fetch current price (simplified - in production you'd use historical data)
-            stock = yf.Ticker(symbol)
-            hist = stock.history(period="1mo")
-
-            if hist.empty:
+            # Get price data
+            try:
+                stock = yf.Ticker(symbol)
+                hist = stock.history(period="1mo")
+                
+                if hist.empty or len(hist) < 2:
+                    self.logger.warning(f"Insufficient price data for {symbol}")
+                    return 0.0
+            except Exception as e:
+                self.logger.error(f"Error fetching price data for {symbol}: {e}")
                 return 0.0
 
             # Calculate accuracy based on recommendation
             recommendation = prediction.get('recommendation', 'HOLD')
-            predicted_direction = {'BUY': 1, 'HOLD': 0, 'SELL': -1}[recommendation]
+            predicted_direction = {'BUY': 1, 'HOLD': 0, 'SELL': -1}.get(recommendation, 0)
 
             # Simple accuracy calculation (price change direction)
-            price_at_analysis = hist['Close'].iloc[0]
-            current_price = hist['Close'].iloc[-1]
-            actual_direction = 1 if current_price > price_at_analysis else (
-                -1 if current_price < price_at_analysis else 0)
+            price_at_analysis = float(hist['Close'].iloc[0])
+            current_price = float(hist['Close'].iloc[-1])
+            
+            price_change = (current_price - price_at_analysis) / price_at_analysis
+            
+            # Determine actual direction with threshold to avoid noise
+            threshold = 0.01  # 1% threshold
+            if price_change > threshold:
+                actual_direction = 1
+            elif price_change < -threshold:
+                actual_direction = -1
+            else:
+                actual_direction = 0
 
             # Calculate accuracy score
             if predicted_direction == actual_direction:
@@ -626,13 +560,18 @@ class LearningEngine:
                 accuracy = 0.0  # Wrong direction
 
             # Adjust for magnitude of confidence
-            confidence = prediction.get('confidence', 5) / 10.0
+            confidence = prediction.get('confidence', 0.5)
+            if isinstance(confidence, (int, float)):
+                confidence = min(max(confidence, 0.0), 1.0)  # Clamp to [0, 1]
+            else:
+                confidence = 0.5
+                
             accuracy_score = accuracy * (0.5 + 0.5 * confidence)
 
             return accuracy_score
 
         except Exception as e:
-            self.logger.error(f"Error calculating accuracy: {e}")
+            self.logger.error(f"Unexpected error calculating accuracy: {e}")
             return 0.0
 
     async def learn_and_improve_prompts(self, agent_name: str) -> Dict[str, Any]:
@@ -849,10 +788,14 @@ WARNINGS: [Key technical risks]
         )
 
         # Get AI analysis
-        response = await self.llm.apredict(prompt)
+        response_obj = await self.llm.ainvoke(prompt)
+        response = response_obj.content if hasattr(response_obj, 'content') else str(response_obj)
 
         # Parse response
         analysis_result = self._parse_analysis(response, stock_data)
+        
+        # Set the historical context flag based on actual context length
+        analysis_result["used_historical_context"] = len(historical_context) > 100
 
         # Store in memory
         prediction = {
@@ -922,7 +865,7 @@ WARNINGS: [Key technical risks]
             "warnings": warnings[:3],
             "raw_analysis": response,
             "timestamp": datetime.now(),
-            "used_historical_context": len(await self.get_historical_context(stock_data["symbol"])) > 100
+            "used_historical_context": True  # Will be set properly in calling method
         }
 
 
@@ -966,18 +909,39 @@ class MemoryEnhancedStockSystem:
 
     async def analyze_with_memory(self, symbols: List[str]) -> List[Dict]:
         """Analyze stocks with full memory and learning capabilities"""
-        self.logger.info(f"🧠 Starting memory-enhanced analysis of {len(symbols)} stocks")
-
+        # Input validation
+        if not symbols or not isinstance(symbols, list):
+            self.logger.error("Invalid symbols list provided")
+            return []
+            
+        # Filter and validate symbols
+        valid_symbols = []
+        for symbol in symbols:
+            if isinstance(symbol, str) and symbol.strip():
+                cleaned_symbol = symbol.upper().strip()
+                if cleaned_symbol.replace('.', '').replace('-', '').isalnum():
+                    valid_symbols.append(cleaned_symbol)
+                else:
+                    self.logger.warning(f"Skipping invalid symbol: {symbol}")
+            else:
+                self.logger.warning(f"Skipping invalid symbol: {symbol}")
+        
+        if not valid_symbols:
+            self.logger.error("No valid symbols provided")
+            return []
+            
+        self.logger.info(f"🧠 Starting memory-enhanced analysis of {len(valid_symbols)} stocks")
         results = []
 
-        for i, symbol in enumerate(symbols, 1):
+        for i, symbol in enumerate(valid_symbols, 1):
             print(f"\n{'=' * 70}")
-            print(f"[{i}/{len(symbols)}] MEMORY-ENHANCED ANALYSIS: {symbol}")
+            print(f"[{i}/{len(valid_symbols)}] MEMORY-ENHANCED ANALYSIS: {symbol}")
             print(f"{'=' * 70}")
 
-            # Get stock data (simplified for example)
+            # Get stock data with validation
             stock_data = await self._fetch_stock_data(symbol)
             if not stock_data:
+                self.logger.warning(f"Skipping {symbol} due to data fetch failure")
                 continue
 
             # Perform memory-enhanced technical analysis
@@ -1019,47 +983,104 @@ class MemoryEnhancedStockSystem:
         return results
 
     async def _fetch_stock_data(self, symbol: str) -> Optional[Dict]:
-        """Fetch stock data (simplified version)"""
+        """Fetch stock data with validation and error handling"""
+        # Input validation
+        if not symbol or not isinstance(symbol, str):
+            self.logger.error(f"Invalid symbol: {symbol}")
+            return None
+            
+        symbol = symbol.upper().strip()
+        if not symbol.replace('.', '').replace('-', '').isalnum():
+            self.logger.error(f"Symbol contains invalid characters: {symbol}")
+            return None
+            
         try:
             stock = yf.Ticker(symbol)
             hist = stock.history(period="60d")
-            info = stock.info
-
-            if hist.empty:
+            
+            if hist.empty or len(hist) < 5:  # Need minimum data points
+                self.logger.warning(f"Insufficient historical data for {symbol}")
                 return None
+
+            # Get stock info with error handling
+            try:
+                info = stock.info
+            except Exception as e:
+                self.logger.warning(f"Could not fetch stock info for {symbol}: {e}")
+                info = {}
 
             current_price = float(hist['Close'].iloc[-1])
             prev_close = float(hist['Close'].iloc[-2]) if len(hist) > 1 else current_price
+            current_volume = int(hist['Volume'].iloc[-1]) if not np.isnan(hist['Volume'].iloc[-1]) else 0
+
+            # Validate price data
+            if current_price <= 0:
+                self.logger.error(f"Invalid price data for {symbol}: {current_price}")
+                return None
 
             # Store price data for future accuracy calculations
-            await self.sql_memory.store_price_data(symbol, current_price, int(hist['Volume'].iloc[-1]))
+            await self.sql_memory.store_price_data(symbol, current_price, current_volume)
+
+            # Calculate technical indicators with error handling
+            try:
+                rsi = self._calculate_rsi(hist['Close'])
+                sma_20 = float(hist['Close'].rolling(20).mean().iloc[-1]) if len(hist) >= 20 else current_price
+                sma_50 = float(hist['Close'].rolling(50).mean().iloc[-1]) if len(hist) >= 50 else current_price
+            except Exception as e:
+                self.logger.warning(f"Error calculating technical indicators for {symbol}: {e}")
+                rsi = 50.0
+                sma_20 = current_price
+                sma_50 = current_price
+
+            # Get 52-week high/low with fallback
+            week_52_high = float(info.get('fiftyTwoWeekHigh', 0))
+            week_52_low = float(info.get('fiftyTwoWeekLow', 0))
+            
+            if week_52_high <= 0:
+                week_52_high = float(hist['High'].max())
+            if week_52_low <= 0:
+                week_52_low = float(hist['Low'].min())
 
             return {
                 "symbol": symbol,
                 "price": current_price,
-                "change_percent": ((current_price - prev_close) / prev_close) * 100,
-                "volume": int(hist['Volume'].iloc[-1]),
-                "week_52_high": float(info.get('fiftyTwoWeekHigh', current_price)),
-                "week_52_low": float(info.get('fiftyTwoWeekLow', current_price)),
-                "rsi": self._calculate_rsi(hist['Close']),
-                "sma_20": hist['Close'].rolling(20).mean().iloc[-1] if len(hist) >= 20 else None,
-                "sma_50": hist['Close'].rolling(50).mean().iloc[-1] if len(hist) >= 50 else None
+                "change_percent": ((current_price - prev_close) / prev_close) * 100 if prev_close > 0 else 0,
+                "volume": current_volume,
+                "week_52_high": week_52_high,
+                "week_52_low": week_52_low,
+                "rsi": rsi,
+                "sma_20": sma_20,
+                "sma_50": sma_50
             }
 
         except Exception as e:
-            self.logger.error(f"Error fetching data for {symbol}: {e}")
+            self.logger.error(f"Unexpected error fetching data for {symbol}: {e}")
             return None
 
     def _calculate_rsi(self, prices, period=14):
         """Calculate RSI"""
         try:
+            if len(prices) < period + 1:
+                return 50.0
+                
             delta = prices.diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+            
+            # Avoid division by zero
+            if loss.iloc[-1] == 0:
+                return 100.0
+                
             rs = gain / loss
             rsi = 100 - (100 / (1 + rs))
-            return float(rsi.iloc[-1]) if not rsi.iloc[-1] != rsi.iloc[-1] else 50.0
-        except:
+            rsi_value = rsi.iloc[-1]
+            
+            # Check for NaN
+            if np.isnan(rsi_value):
+                return 50.0
+                
+            return float(rsi_value)
+        except Exception as e:
             return 50.0
 
 
@@ -1067,31 +1088,78 @@ class MemoryEnhancedStockSystem:
 # STEP 7: Main Application
 # ============================================================================
 
+def validate_environment():
+    """Validate required environment and dependencies"""
+    errors = []
+    
+    # Check OpenAI API key
+    if not os.getenv('OPENAI_API_KEY'):
+        errors.append("OPENAI_API_KEY environment variable is required")
+    
+    # Check for required modules (already checked in imports, but double-check)
+    required_modules = ['yfinance', 'chromadb', 'langchain_openai', 'sklearn']
+    for module in required_modules:
+        try:
+            __import__(module)
+        except ImportError:
+            errors.append(f"Required module '{module}' is not installed")
+    
+    if errors:
+        print("❌ Environment validation failed:")
+        for error in errors:
+            print(f"  - {error}")
+        return False
+    
+    return True
+
+
 async def main():
     """Main application demonstrating memory and learning"""
     print("🧠 Memory & Learning Enhanced Stock Analysis System")
     print("=" * 70)
+    
+    # Validate environment
+    if not validate_environment():
+        print("\nPlease fix the above issues and try again.")
+        sys.exit(1)
 
     # Default stocks
     default_symbols = ["AAPL", "GOOGL", "MSFT"]
 
     if len(sys.argv) > 1:
-        symbols = [s.upper().strip() for s in sys.argv[1].split(',')]
+        symbols = [s.upper().strip() for s in sys.argv[1].split(',') if s.strip()]
+        # Validate symbols format
+        valid_symbols = []
+        for symbol in symbols:
+            if symbol.replace('.', '').replace('-', '').isalnum() and len(symbol) <= 10:
+                valid_symbols.append(symbol)
+            else:
+                print(f"⚠️ Skipping invalid symbol: {symbol}")
+        symbols = valid_symbols if valid_symbols else default_symbols
     else:
         print(f"Using default portfolio: {', '.join(default_symbols)}")
         symbols = default_symbols
 
     # Initialize memory-enhanced system
-    system = MemoryEnhancedStockSystem()
+    try:
+        system = MemoryEnhancedStockSystem()
+    except Exception as e:
+        print(f"❌ Failed to initialize system: {e}")
+        sys.exit(1)
 
     # Run analysis multiple times to demonstrate learning
     print("\n🔄 Running analysis to demonstrate learning...")
-
+    
+    results = None
     for round_num in range(1, 4):  # Run 3 rounds
         print(f"\n🎯 ANALYSIS ROUND {round_num}")
         print("=" * 50)
 
-        results = await system.analyze_with_memory(symbols)
+        try:
+            results = await system.analyze_with_memory(symbols)
+        except Exception as e:
+            print(f"❌ Error in analysis round {round_num}: {e}")
+            continue
 
         # Show learning progress
         performance = await system.sql_memory.get_agent_performance("SmartTechnicalAnalyst")
@@ -1103,15 +1171,22 @@ async def main():
 
         # Small delay between rounds
         if round_num < 3:
-            print("\n⏳ Waiting 30 seconds before next round...")
-            await asyncio.sleep(30)
+            print("\n⏳ Waiting 10 seconds before next round...")
+            await asyncio.sleep(10)
 
-    # Save results
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    with open(f"memory_enhanced_results_{timestamp}.json", 'w') as f:
-        json.dump(results, f, indent=2, default=str)
-
-    print(f"\n💾 Results saved to memory_enhanced_results_{timestamp}.json")
+    # Save results if we have any
+    if results:
+        try:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"memory_enhanced_results_{timestamp}.json"
+            with open(filename, 'w') as f:
+                json.dump(results, f, indent=2, default=str)
+            print(f"\n💾 Results saved to {filename}")
+        except Exception as e:
+            print(f"⚠️ Could not save results: {e}")
+    else:
+        print("\n⚠️ No results to save")
+    
     print(f"📊 Memory databases stored in memory/ directory")
 
 
